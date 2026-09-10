@@ -1,0 +1,14 @@
+{
+  "name": "bingo-virtual-servidor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bingo virtual multijugador 1-75 con salas y cartones 5x5",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1"
+  }
+}

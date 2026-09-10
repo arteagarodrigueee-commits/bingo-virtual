@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bingo Virtual</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;background:#f4f4f4;color:#222}
+header{background:#222;color:#fff;padding:18px;text-align:center}
+main{max-width:1000px;margin:auto;padding:20px}
+.card{background:white;border-radius:14px;padding:18px;margin-bottom:20px;box-shadow:0 3px 12px #0002}
+button,input,select{font-size:16px;padding:10px;margin:4px;border-radius:8px;border:1px solid #bbb}
+button{cursor:pointer}
+.primary{background:#222;color:#fff}
+#drawn{font-size:54px;font-weight:bold;text-align:center;padding:20px}
+.ball{display:inline-block;border:1px solid #aaa;border-radius:50%;padding:8px;margin:3px;min-width:22px;text-align:center}
+table{border-collapse:collapse;margin:12px auto}
+th,td{border:2px solid #333;width:60px;height:52px;text-align:center;font-weight:bold;font-size:20px}
+th{background:#ddd}
+.marked{background:#222;color:#fff}
+.free{background:#ddd;font-size:13px}
+#room{font-family:monospace}
+.hidden{display:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:15px}
+small{color:#666}
+</style>
+</head>
+<body>
+<header><h1>🎱 BINGO VIRTUAL</h1><div>1–75 · Cartones 5×5</div></header>
+<main>
+<div class="card">
+<h2>Crear / entrar a una sala</h2>
+<input id="room" placeholder="Código de sala" maxlength="12">
+<input id="name" placeholder="Tu nombre">
+<button class="primary" onclick="join()">Entrar</button>
+<button onclick="newRoom()">Nueva sala</button>
+<p id="status"><small>Conectando al servidor…</small></p>
+</div>
+
+<div id="game" class="hidden">
+<div class="card">
+<h2>Sala: <span id="roomLabel"></span></h2>
+<div id="drawn">—</div>
+<button class="primary" onclick="draw()">🎱 Sacar número</button>
+<button onclick="resetGame()">🔄 Reiniciar</button>
+<div id="history"></div>
+</div>
+<div class="card">
+<h2>Mi cartón</h2>
+<div id="myCard"></div>
+</div>
+<div class="card">
+<h2>Jugadores</h2><div id="players"></div>
+</div>
+</div>
+</main>
+<script src="/socket.io/socket.io.js"></script><script>
+let state = {
+  room: "",
+  name: "",
+  card: null,
+  drawn: [],
+  players: [],
+  hostId: null,
+  socketId: null
+};
+
+const socket = io();
+
+socket.on("connect", () => {
+  state.socketId = socket.id;
+});
+
+socket.on("state", data => {
+  state.room = data.room;
+  state.drawn = data.drawn || [];
+  state.players = data.players || [];
+  state.hostId = data.hostId;
+
+  const me = state.players.find(p => p.id === state.socketId);
+  if (me) state.card = me.card;
+
+  document.getElementById("roomLabel").textContent = state.room;
+  document.getElementById("game").classList.remove("hidden");
+  document.getElementById("status").innerHTML =
+    `<small>Servidor activo · ${state.players.length} jugador(es) · ` +
+    (state.hostId === state.socketId ? "Eres el anfitrión" : "El anfitrión controla los números") +
+    `</small>`;
+
+  document.querySelector('[onclick="draw()"]').disabled = state.hostId !== state.socketId;
+  document.querySelector('[onclick="resetGame()"]').disabled = state.hostId !== state.socketId;
+
+  render();
+  if (state.drawn.length) {
+    const n = state.drawn[state.drawn.length - 1];
+    document.getElementById("drawn").textContent = letter(n) + "-" + n;
+  } else {
+    document.getElementById("drawn").textContent = "—";
+  }
+});
+
+function newRoom() {
+  document.getElementById("room").value =
+    Math.random().toString(36).slice(2,8).toUpperCase();
+}
+
+function join() {
+  const room = (document.getElementById("room").value || "LOCAL").toUpperCase();
+  const name = document.getElementById("name").value || "Jugador";
+  socket.emit("joinRoom", { room, name });
+}
+
+function draw() {
+  if (state.hostId === state.socketId) socket.emit("draw");
+}
+
+function resetGame() {
+  if (state.hostId === state.socketId) socket.emit("reset");
+}
+
+function letter(n) {
+  return n <= 15 ? "B" : n <= 30 ? "I" : n <= 45 ? "N" : n <= 60 ? "G" : "O";
+}
+
+function win() {
+  if (!state.card) return false;
+  const a = state.card.map((row,r) =>
+    row.map((n,c) => r === 2 && c === 2 || state.drawn.includes(n))
+  );
+  for (let r=0;r<5;r++) if (a[r].every(Boolean)) return true;
+  for (let c=0;c<5;c++) if (a.every(r => r[c])) return true;
+  return false;
+}
+
+let announced = false;
+
+function render() {
+  if (!state.card) return;
+
+  let h = "<table><tr>" +
+    ["B","I","N","G","O"].map(x => "<th>"+x+"</th>").join("") +
+    "</tr>";
+
+  state.card.forEach((row,r) => {
+    h += "<tr>";
+    row.forEach((n,c) => {
+      const m = (r === 2 && c === 2) || state.drawn.includes(n);
+      h += "<td class='" + (m ? (r === 2 && c === 2 ? "free" : "marked") : "") +
+        "'>" + (r === 2 && c === 2 ? "LIBRE" : n) + "</td>";
+    });
+    h += "</tr>";
+  });
+  h += "</table>";
+
+  document.getElementById("myCard").innerHTML = h;
+  document.getElementById("history").innerHTML =
+    "<b>Números:</b> " +
+    state.drawn.map(n => '<span class="ball">'+letter(n)+n+'</span>').join("");
+
+  document.getElementById("players").innerHTML =
+    state.players.map(p =>
+      `<span>${escapeHtml(p.name)}${p.id === state.hostId ? " 👑" : ""}</span>`
+    ).join(", ");
+
+  if (win() && !announced) {
+    announced = true;
+    setTimeout(() => alert("🏆 ¡BINGO!"), 50);
+  }
+  if (!win()) announced = false;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
+}
+</script>
+</body>
+</html>
